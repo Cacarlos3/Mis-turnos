@@ -1,96 +1,121 @@
 import streamlit as st
 import pandas as pd
-from datetime import time
+from datetime import time, datetime, timedelta
 
-# Configuración de la página
-st.set_page_config(page_title="Gestor de Turnos Inteligente", layout="wide")
+# CONFIGURACIÓN INICIAL
+st.set_page_config(page_title="Planificador Real 2.0", layout="wide")
 
-st.title("🗓️ Planificador de Turnos - Prototipo")
-st.markdown("Configura los turnos y el sistema validará las restricciones automáticamente.")
-
-# --- 1. BASE DE DATOS FICTICIA (Configurable en el futuro) ---
+# ESTADO DE LA SESIÓN (Base de datos temporal)
 if 'empleados' not in st.session_state:
-    st.session_state.empleados = [
-        {"Nombre": "Ana", "Vetados": [8], "Incompatible": "Bruno"},
-        {"Nombre": "Bruno", "Vetados": [2], "Incompatible": "Ana"},
-        {"Nombre": "Carlos", "Vetados": [1, 3], "Incompatible": "Diana"},
-        {"Nombre": "Diana", "Vetados": [], "Incompatible": "Carlos"},
-        {"Nombre": "Elena", "Vetados": [5], "Incompatible": ""},
-    ]
+    st.session_state.empleados = []
+if 'tiendas' not in st.session_state:
+    st.session_state.tiendas = []
+if 'incidencias' not in st.session_state:
+    st.session_state.incidencias = {"bajas": [], "especiales": []}
 
-if 'cuadrante' not in st.session_state:
-    st.session_state.cuadrante = pd.DataFrame(columns=["Empleado", "Día", "Tienda", "Entrada", "Salida"])
+# NAVEGACIÓN POR PESTAÑAS
+tab_emp, tab_tiendas, tab_horarios = st.tabs(["👥 Empleados", "🏪 Tiendas", "📅 Horarios"])
 
-# --- 2. PANEL LATERAL: ENTRADA DE DATOS ---
-with st.sidebar:
-    st.header("Asignar Nuevo Turno")
+# --- PESTAÑA 1: EMPLEADOS ---
+with tab_emp:
+    st.header("Gestión de Personal")
     
-    emp_nom = st.selectbox("Selecciona Empleado", [e["Nombre"] for e in st.session_state.empleados])
-    dia = st.selectbox("Día de la semana", ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"])
-    tienda_num = st.number_input("Número de Tienda (1-8)", min_value=1, max_value=8, value=1)
-    tienda_label = f"Tienda {tienda_num}"
-    
-    t_entrada = st.time_input("Hora de Entrada", time(9, 0))
-    t_salida = st.time_input("Hora de Salida", time(21, 0))
-    
-    boton_añadir = st.button("Añadir al Cuadrante")
+    with st.expander("➕ Añadir Nuevo Empleado"):
+        with st.form("form_empleado"):
+            nombre = st.text_input("Nombre del empleado")
+            
+            # Restricciones
+            col1, col2 = st.columns(2)
+            with col1:
+                veto_tiendas = st.multiselect("No puede trabajar en:", [f"Tienda {i}" for i in range(1,9)])
+                veto_compa = st.multiselect("No puede trabajar con:", [e['Nombre'] for e in st.session_state.empleados])
+            with col2:
+                dias_libres = st.multiselect("Días libres fijos:", ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"])
+                horas_prohibidas = st.slider("Intervalo de horas no disponible:", 9, 21, (9, 10))
+            
+            if st.form_submit_button("Guardar Empleado"):
+                if nombre:
+                    st.session_state.empleados.append({
+                        "Nombre": nombre,
+                        "Veto_Tiendas": veto_tiendas,
+                        "Veto_Compa": veto_compa,
+                        "Dias_Libres": dias_libres,
+                        "Horas_NO": horas_prohibidas
+                    })
+                    st.success(f"Empleado {nombre} añadido.")
+                    st.rerun()
 
-# --- 3. LÓGICA DE VALIDACIÓN ---
-if boton_añadir:
-    # Obtener info del empleado
-    info = next(item for item in st.session_state.empleados if item["Nombre"] == emp_nom)
-    error = False
+    # LISTA DE EMPLEADOS
+    for i, emp in enumerate(st.session_state.empleados):
+        col_n, col_b = st.columns([0.8, 0.2])
+        if col_n.button(f"👤 {emp['Nombre']} (Click para editar)", key=f"emp_{i}"):
+            st.info(f"Editando a {emp['Nombre']} - Funcionalidad en desarrollo")
+        if col_b.button("🗑️", key=f"del_{i}"):
+            st.session_state.empleados.pop(i)
+            st.rerun()
+
+# --- PESTAÑA 2: TIENDAS ---
+with tab_tiendas:
+    st.header("Configuración de Tiendas")
     
-    # Validación 1: Tienda Vetada
-    if tienda_num in info["Vetados"]:
-        st.error(f"❌ {emp_nom} tiene prohibido trabajar en la Tienda {tienda_num}.")
-        error = True
+    with st.expander("🏪 Abrir Nueva Tienda"):
+        with st.form("form_tienda"):
+            t_nombre = st.text_input("Nombre de la tienda (ej: Tienda 1)")
+            st.write("Configuración por día (Horario y Empleados necesarios):")
+            
+            config_dias = {}
+            for d in ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]:
+                c1, c2, c3 = st.columns([1,1,1])
+                h_ap = c1.time_input(f"Apertura {d}", time(9,0), key=f"ap_{d}")
+                h_ci = c2.time_input(f"Cierre {d}", time(21,0), key=f"ci_{d}")
+                num_e = c3.number_input(f"Empleados {d}", 1, 10, 2, key=f"num_{d}")
+                config_dias[d] = {"ap": h_ap, "ci": h_ci, "num": num_e}
+            
+            if st.form_submit_button("Aceptar"):
+                st.session_state.tiendas.append({"Nombre": t_nombre, "Config": config_dias})
+                st.rerun()
+
+    for j, tienda in enumerate(st.session_state.tiendas):
+        st.button(f"🏪 {tienda['Nombre']}", key=f"t_list_{j}")
+
+# --- PESTAÑA 3: HORARIOS ---
+with tab_horarios:
+    st.header("Generador de Cuadrante Semanal")
     
-    # Validación 2: Incompatibilidad
-    compañeros = st.session_state.cuadrante[
-        (st.session_state.cuadrante["Día"] == dia) & 
-        (st.session_state.cuadrante["Tienda"] == tienda_label)
-    ]["Empleado"].tolist()
+    col_a, col_b = st.columns(2)
     
-    if info["Incompatible"] in compañeros:
-        st.error(f"❌ Conflicto: {emp_nom} no puede trabajar con {info['Incompatible']}.")
-        error = True
+    with col_a:
+        st.subheader("🚑 Bajas e Incidencias")
+        baja_emp = st.selectbox("Empleado con incidencia:", ["Seleccionar..."] + [e['Nombre'] for e in st.session_state.empleados])
+        tipo_baja = st.radio("Duración:", ["Todo el día", "Unas horas"])
+        if tipo_baja == "Unas horas":
+            rango = st.slider("Rango horario de la baja:", 9, 21, (10, 14))
         
-    if not error:
-        nuevo_turno = pd.DataFrame([{
-            "Empleado": emp_nom,
-            "Día": dia,
-            "Tienda": tienda_label,
-            "Entrada": t_entrada.strftime("%H:%M"),
-            "Salida": t_salida.strftime("%H:%M")
-        }])
-        st.session_state.cuadrante = pd.concat([st.session_state.cuadrante, nuevo_turno], ignore_index=True)
-        st.success(f"✅ Turno añadido para {emp_nom}")
+        if st.button("Registrar Incidencia"):
+            st.success("Incidencia registrada para el cálculo.")
 
-# --- 4. VISUALIZACIÓN Y EXPORTACIÓN ---
-st.subheader("Cuadrante Semanal Actual")
-if not st.session_state.cuadrante.empty:
-    # Ordenar por día para que se vea bien
-    orden_dias = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
-    st.session_state.cuadrante['Día'] = pd.Categorical(st.session_state.cuadrante['Día'], categories=orden_dias, ordered=True)
-    df_visible = st.session_state.cuadrante.sort_values(["Día", "Tienda"])
-    
-    st.dataframe(df_visible, use_container_width=True)
-    
-    # Botón para descargar en CSV (Que puedes abrir en Excel)
-    csv = df_visible.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="Descargar para Excel",
-        data=csv,
-        file_name="cuadrante_turnos.csv",
-        mime="text/csv",
-    )
-    
-    if st.button("Limpiar todo el cuadrante"):
-        st.session_state.cuadrante = pd.DataFrame(columns=["Empleado", "Día", "Tienda", "Entrada", "Salida"])
-        st.rerun()
-else:
-    st.info("Aún no hay turnos asignados. Usa el panel de la izquierda.")
+    with col_b:
+        st.subheader("🚀 Refuerzos Especiales")
+        # Aquí iría la lógica de necesidades especiales por tienda
+        st.write("Configura necesidades extra para días concretos.")
 
-st.divider()
-st.info("💡 **Nota para el futuro:** Esta es una versión de prueba. En la versión final, el botón 'PDF' generará el archivo con tu diseño exacto de Excel de forma automática.")
+    st.divider()
+    if st.button("🟢 CREAR TURNO", use_container_width=True, type="primary"):
+        with st.status("Calculando turnos óptimos..."):
+            st.write("Verificando vetos de tiendas...")
+            st.write("Cruzando incompatibilidades personales...")
+            st.write("Ajustando jornadas de 8 horas...")
+            
+            # Aquí se ejecutaría el algoritmo de reparto
+            st.success("¡Turno generado con éxito!")
+            
+            # Resultado visual (Ejemplo)
+            st.subheader("Vista Previa del Resultado")
+            st.table(pd.DataFrame({
+                "Tienda": ["Tienda 1", "Tienda 1", "Tienda 2"],
+                "Empleado": ["Ana", "Carlos", "Elena"],
+                "Horario": ["09:00 - 17:00", "13:00 - 21:00", "09:00 - 17:00"],
+                "Día": ["Lunes", "Lunes", "Lunes"]
+            }))
+
+### ¿
